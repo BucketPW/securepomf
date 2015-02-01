@@ -1,0 +1,98 @@
+#!/bin/bash
+set -e
+
+# securepomf:
+# If run on a file, will encrypt the file and upload to pomf
+# If run on a special pomf URL, will download and decrypt
+
+
+# Make sure we have GPG and curl
+command -v curl >/dev/null 2>&1 || { echo >&2 "securepomf requires curl but it's not installed"; exit 1; }
+command -v gpg >/dev/null 2>&1 || { echo >&2 "securepomf requires gpg but it's not installed"; exit 1; }
+
+
+
+if [ -z "$1" ]; then
+    echo "gib file or URL pls" && exit
+fi
+
+
+
+input_URI="$1"
+in_file="$(basename "$input_URI" | cut -d'#' -f1)"
+up_url="http://pomf.se/upload.php"
+down_url="http://a.pomf.se"
+
+
+
+
+
+function encrypt_upload() {
+    pass="$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c32)"
+    out_name="$(< /dev/urandom tr -dc a-z | head -c6)"
+   
+    if [[ "${in_file##*.}" == "$in_file" ]]
+        then
+            ext=""
+        else
+            ext=".${in_file##*.}"
+    fi
+    
+    out_file="/tmp/$out_name$ext"
+    
+    echo "Encrypting $in_file..."
+    echo "$pass" | gpg --output "$out_file" --batch --passphrase-fd 0 \
+        --symmetric --cipher-algo AES256 "$input_URI"
+    
+    # This is stolen from other pomf scripts so don't blame me for ugliness
+    echo "Uploading encrypted file..."
+    curl_output=$(curl --silent -sf -F files[]="@$out_file" "$up_url")
+    n=0 # Try a few times
+    while [[ $n -le 3 ]]; do
+        printf "Upload attempt #${n}... "
+        if [[ "${curl_output}" =~ '"success":true,' ]]; then
+            pomf_file=$(echo "$curl_output" | grep -Eo '"url":"[A-Za-z0-9]+.*",' | sed 's/"url":"//;s/",//')
+            echo "Uploaded!"
+            break
+        else
+            echo "Failed..."
+            ((n = n +1))
+       fi
+    done
+    
+    pomf_url="http://a.pomf.se/$pomf_file#$pass"
+    
+    echo "File has been encrypted and uploaded to: $pomf_url"
+
+    rm "$out_file"
+
+    # Optional: save URLs
+    # echo $pomf_url >> ~/secpomfs.txt
+}
+
+
+
+function download_decrypt() {
+    encrypted_file="$(mktemp)"
+    
+    echo "Downloading and decrypting $in_file..."
+    curl --silent "$input_URI" --output "$encrypted_file"
+
+    pass="$(echo "$input_URI" | cut -d'#' -f2)"
+    
+    echo "$pass" | gpg --output "$in_file" --batch --passphrase-fd 0 \
+        --decrypt "$encrypted_file" &>/dev/null
+
+    echo "File saved to: $in_file"
+        
+    rm "$encrypted_file"
+}
+
+
+
+# Definitely less than ideal for main
+if [[ "$input_URI" == "$down_url"* ]]; then
+        download_decrypt
+    else
+        encrypt_upload
+fi
