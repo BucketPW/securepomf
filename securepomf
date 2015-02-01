@@ -6,15 +6,10 @@ set -e
 # If run on a special pomf URL, will download and decrypt
 
 
-# Make sure we have GPG and curl
-command -v curl >/dev/null 2>&1 || { echo >&2 "securepomf requires curl but it's not installed"; exit 1; }
-command -v gpg >/dev/null 2>&1 || { echo >&2 "securepomf requires gpg but it's not installed"; exit 1; }
-
-
-
-if [ -z "$1" ]; then
-    echo "gib file or URL pls" && exit
-fi
+# Make sure we have GPG, curl, and a file to work with
+if [ -z $(which gpg) ]; then echo "no gpg found"; exit; fi
+if [ -z $(which curl) ]; then echo "no curl found"; exit; fi
+if [ -z "$1" ]; then echo "gib file or URL pls"; exit; fi
 
 
 
